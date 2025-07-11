@@ -1,195 +1,173 @@
-import React, { useState } from "react";
-import axios from "axios";
-import { Bar } from "react-chartjs-2";
-import "chart.js/auto";
+import React, { useState } from 'react';
 
-export default function App() {
-  const [data, setData] = useState([]);
-  const [filters, setFilters] = useState({ carrier: "", direction: "", manager: "" });
+function App() {
+  const [deals, setDeals] = useState([]);
+  const [carrierFilter, setCarrierFilter] = useState('');
+  const [directionFilter, setDirectionFilter] = useState('');
+  const [managerFilter, setManagerFilter] = useState('');
   const [totals, setTotals] = useState(null);
-  const [currencySymbol, setCurrencySymbol] = useState("€");
 
-  const handleUpload = async (e) => {
+  const handleFileChange = async (e) => {
     const file = e.target.files[0];
-    if (!file) return;
     const formData = new FormData();
-    formData.append("file", file);
-    const res = await axios.post("http://localhost:5000/upload", formData);
-    setData(res.data);
-    setTotals(null);
+    formData.append('file', file);
+
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await res.json();
+    setDeals(data);
   };
 
-  const updateLiveCost = (id, value) => {
-    setData((prev) =>
-      prev.map((row) =>
-        row.id === id ? { ...row, liveCost: parseFloat(value) || 0 } : row
-      )
-    );
+  const handleRateChange = (index, newRate) => {
+    const updated = [...deals];
+    updated[index].Rate = parseFloat(newRate);
+    setDeals(updated);
   };
 
-  const updateRate = (id, value) => {
-    setData((prev) =>
-      prev.map((row) =>
-        row.id === id ? { ...row, rate: parseFloat(value) || 0 } : row
-      )
-    );
+  const handleLiveCostChange = (index, newCost) => {
+    const updated = [...deals];
+    updated[index].LiveCost = parseFloat(newCost);
+    setDeals(updated);
   };
 
-  const filtered = data.filter((row) => {
+  const handleNetRateChange = (index, newNet) => {
+    const updated = [...deals];
+    updated[index].NetRate = parseFloat(newNet);
+    setDeals(updated);
+  };
+
+  const calculateTotals = () => {
+    let inRevenue = 0, inMargin = 0, outRevenue = 0, outLoss = 0;
+
+    deals.forEach((deal) => {
+      const passed = parseFloat(deal.Passed || 0);
+      const rate = parseFloat(deal.Rate || 0);
+      const live = parseFloat(deal.LiveCost || 0);
+      const net = parseFloat(deal.NetRate || 0);
+      const dir = (deal.Direction || '').toUpperCase();
+
+      if (dir === 'IN') {
+        inRevenue += passed * rate;
+        inMargin += (rate - live) * passed;
+      }
+      if (dir === 'OUT') {
+        outRevenue += passed * rate;
+        outLoss += (rate - net) * passed;
+      }
+    });
+
+    const netProfitPercent = inRevenue > 0 ? ((inMargin - outLoss) / inRevenue) * 100 : 0;
+
+    setTotals({
+      inRevenue,
+      inMargin,
+      outRevenue,
+      outLoss,
+      netProfitPercent,
+    });
+  };
+
+  const filteredDeals = deals.filter((deal) => {
+    const carrier = (deal.Carrier || '').toLowerCase();
+    const dir = (deal.Direction || '').toLowerCase();
+    const manager = (deal.Manager || '').toLowerCase();
+
     return (
-      (filters.direction === "" || row.direction === filters.direction.toUpperCase()) &&
-      (filters.carrier === "" || row.carrier.toLowerCase().includes(filters.carrier.toLowerCase())) &&
-      (filters.manager === "" || row.accountManager.toLowerCase().includes(filters.manager.toLowerCase()))
+      carrier.includes(carrierFilter.toLowerCase()) &&
+      dir.includes(directionFilter.toLowerCase()) &&
+      manager.includes(managerFilter.toLowerCase())
     );
   });
 
-  const calculateTotals = () => {
-    const total = {
-      inRevenue: 0,
-      inMargin: 0,
-      outRevenue: 0,
-      outLoss: 0,
-    };
-    filtered.forEach((row) => {
-      const inRevenue = row.direction === "IN" ? row.rate * row.passed : 0;
-      const inMargin = row.direction === "IN" ? (row.rate - row.liveCost) * row.passed : 0;
-      const outRevenue = row.direction === "OUT" ? row.rate * row.passed : 0;
-      const outLoss = row.direction === "OUT" ? (row.rate - row.netRate) * row.passed : 0;
-
-      total.inRevenue += inRevenue;
-      total.inMargin += inMargin;
-      total.outRevenue += outRevenue;
-      total.outLoss += outLoss;
-    });
-    total.netProfitPercent = total.inRevenue
-      ? ((total.inMargin - total.outLoss) / total.inRevenue) * 100
-      : 0;
-    setTotals(total);
-  };
-
-  const formatCurrency = (value, decimals = 4) =>
-    `${currencySymbol}${parseFloat(value).toFixed(decimals)}`;
-
   return (
-    <div className="p-4 font-sans text-sm">
-      <h1 className="text-2xl font-bold mb-4">📊 Swap Deals Analyzer</h1>
+    <div style={{ padding: '20px' }}>
+      <h1>📊 Swap Deals Analyzer</h1>
+      <input type="file" onChange={handleFileChange} />
+      <input placeholder="Filter by Carrier" onChange={(e) => setCarrierFilter(e.target.value)} />
+      <input placeholder="Filter by Manager" onChange={(e) => setManagerFilter(e.target.value)} />
+      <select onChange={(e) => setDirectionFilter(e.target.value)}>
+        <option value="">Direction</option>
+        <option value="IN">IN</option>
+        <option value="OUT">OUT</option>
+      </select>
+      <button onClick={calculateTotals}>Calculate Totals</button>
 
-      <div className="flex gap-4 mb-4 flex-wrap">
-        <input type="file" onChange={handleUpload} />
-        <input
-          placeholder="Filter by Carrier"
-          className="border px-2 py-1"
-          onChange={(e) => setFilters({ ...filters, carrier: e.target.value })}
-        />
-        <input
-          placeholder="Filter by Manager"
-          className="border px-2 py-1"
-          onChange={(e) => setFilters({ ...filters, manager: e.target.value })}
-        />
-        <select
-          className="border px-2 py-1"
-          onChange={(e) => setFilters({ ...filters, direction: e.target.value })}
-        >
-          <option value="">Direction</option>
-          <option value="IN">IN</option>
-          <option value="OUT">OUT</option>
-        </select>
-
-        <button
-          className="bg-blue-600 text-white px-4 py-1 rounded"
-          onClick={calculateTotals}
-        >
-          Calculate Totals
-        </button>
-
-        <button
-          className="bg-purple-600 text-white px-3 py-1 rounded"
-          onClick={() => setCurrencySymbol(currencySymbol === "€" ? "$" : "€")}
-        >
-          Switch to {currencySymbol === "€" ? "USD ($)" : "EUR (€)"}
-        </button>
-      </div>
-
-      {totals && (
-        <div className="mb-6 bg-gray-100 p-4 rounded shadow-sm">
-          <h2 className="text-lg font-semibold mb-2">📈 Summary Totals</h2>
-          <p>IN Revenue: {formatCurrency(totals.inRevenue, 2)}</p>
-          <p>IN Margin: {formatCurrency(totals.inMargin, 2)}</p>
-          <p>OUT Revenue: {formatCurrency(totals.outRevenue, 2)}</p>
-          <p>OUT Net Loss: {formatCurrency(totals.outLoss, 2)}</p>
-          <p>
-            Net Profit %:{" "}
-            <span className={totals.netProfitPercent >= 0 ? "text-green-700" : "text-red-700"}>
-              {totals.netProfitPercent.toFixed(2)}%
-            </span>
-          </p>
-        </div>
-      )}
-
-      <table className="w-full border text-xs mb-8">
-        <thead className="bg-gray-200">
+      <table border="1" cellPadding="6" style={{ marginTop: 20 }}>
+        <thead>
           <tr>
-            <th className="border px-2 py-1">Carrier</th>
-            <th className="border px-2 py-1">Direction</th>
-            <th className="border px-2 py-1">Destination</th>
-            <th className="border px-2 py-1">Passed</th>
-            <th className="border px-2 py-1">Rate</th>
-            <th className="border px-2 py-1">Live Cost</th>
-            <th className="border px-2 py-1">Net Rate</th>
-            <th className="border px-2 py-1">IN Rev</th>
-            <th className="border px-2 py-1">IN Margin</th>
-            <th className="border px-2 py-1">OUT Rev</th>
-            <th className="border px-2 py-1">OUT Loss</th>
-            <th className="border px-2 py-1">Manager</th>
-            <th className="border px-2 py-1">⚠️</th>
+            <th>Carrier</th>
+            <th>Direction</th>
+            <th>Destination</th>
+            <th>Passed</th>
+            <th>Rate</th>
+            <th>Live Cost</th>
+            <th>Net Rate</th>
+            <th>IN Rev</th>
+            <th>IN Margin</th>
+            <th>OUT Rev</th>
+            <th>OUT Loss</th>
+            <th>Manager</th>
           </tr>
         </thead>
         <tbody>
-          {filtered.map((row) => {
-            const inRevenue = row.direction === "IN" ? row.rate * row.passed : 0;
-            const inMargin = row.direction === "IN" ? (row.rate - row.liveCost) * row.passed : 0;
-            const outRevenue = row.direction === "OUT" ? row.rate * row.passed : 0;
-            const outLoss = row.direction === "OUT" ? (row.rate - row.netRate) * row.passed : 0;
-            const alert = inMargin > 100 && outLoss > 100;
+          {filteredDeals.map((d, i) => {
+            const passed = parseFloat(d.Passed || 0);
+            const rate = parseFloat(d.Rate || 0);
+            const live = parseFloat(d.LiveCost || 0);
+            const net = parseFloat(d.NetRate || 0);
+            const dir = (d.Direction || '').toUpperCase();
+
+            const inRev = dir === 'IN' ? passed * rate : 0;
+            const inMargin = dir === 'IN' ? (rate - live) * passed : 0;
+            const outRev = dir === 'OUT' ? passed * rate : 0;
+            const outLoss = dir === 'OUT' ? (rate - net) * passed : 0;
 
             return (
-              <tr key={row.id} className={alert ? "bg-red-100" : ""}>
-                <td className="border p-1">{row.carrier}</td>
-                <td className="border p-1">{row.direction}</td>
-                <td className="border p-1">{row.destination}</td>
-                <td className="border p-1">{row.passed}</td>
-
-                <td className="border p-1">
+              <tr key={i}>
+                <td>{d.Carrier}</td>
+                <td>{d.Direction}</td>
+                <td>{d.Destination}</td>
+                <td>{passed}</td>
+                <td>
                   <input
                     type="number"
                     step="0.0001"
-                    value={row.rate}
-                    onChange={(e) => updateRate(row.id, e.target.value)}
-                    className="w-20 border px-1"
+                    value={rate}
+                    onChange={(e) => handleRateChange(i, e.target.value)}
                   />
                 </td>
-
-                <td className="border p-1">
-                  {row.direction === "IN" ? (
+                <td>
+                  {dir === 'IN' ? (
                     <input
                       type="number"
                       step="0.0001"
-                      value={row.liveCost}
-                      onChange={(e) => updateLiveCost(row.id, e.target.value)}
-                      className="w-20 border px-1"
+                      value={live}
+                      onChange={(e) => handleLiveCostChange(i, e.target.value)}
                     />
                   ) : (
-                    "-"
+                    '—'
                   )}
                 </td>
-
-                <td className="border p-1">{formatCurrency(row.netRate)}</td>
-                <td className="border p-1">{formatCurrency(inRevenue, 2)}</td>
-                <td className="border p-1 text-green-700">{formatCurrency(inMargin, 2)}</td>
-                <td className="border p-1">{formatCurrency(outRevenue, 2)}</td>
-                <td className="border p-1 text-red-700">{formatCurrency(outLoss, 2)}</td>
-                <td className="border p-1">{row.accountManager}</td>
-                <td className="border p-1 text-center">{alert ? "⚠️" : ""}</td>
+                <td>
+                  {dir === 'OUT' ? (
+                    <input
+                      type="number"
+                      step="0.0001"
+                      value={net}
+                      onChange={(e) => handleNetRateChange(i, e.target.value)}
+                    />
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>€{inRev.toFixed(2)}</td>
+                <td>€{inMargin.toFixed(2)}</td>
+                <td>€{outRev.toFixed(2)}</td>
+                <td>€{outLoss.toFixed(2)}</td>
+                <td>{d.Manager}</td>
               </tr>
             );
           })}
@@ -197,26 +175,17 @@ export default function App() {
       </table>
 
       {totals && (
-        <div className="w-full max-w-xl mx-auto">
-          <Bar
-            data={{
-              labels: ["IN Revenue", "IN Margin", "OUT Revenue", "OUT Net Loss"],
-              datasets: [
-                {
-                  label: currencySymbol,
-                  data: [
-                    totals.inRevenue,
-                    totals.inMargin,
-                    totals.outRevenue,
-                    totals.outLoss,
-                  ],
-                  backgroundColor: ["#3b82f6", "#16a34a", "#f59e0b", "#dc2626"],
-                },
-              ],
-            }}
-          />
+        <div style={{ marginTop: 20 }}>
+          <h3>📈 Summary</h3>
+          <p>IN Revenue: €{totals.inRevenue.toFixed(2)}</p>
+          <p>IN Margin: €{totals.inMargin.toFixed(2)}</p>
+          <p>OUT Revenue: €{totals.outRevenue.toFixed(2)}</p>
+          <p>OUT Loss: €{totals.outLoss.toFixed(2)}</p>
+          <p>Net Profit %: {totals.netProfitPercent.toFixed(2)}%</p>
         </div>
       )}
     </div>
   );
 }
+
+export default App;
